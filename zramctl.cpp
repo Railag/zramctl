@@ -7,7 +7,6 @@
 #include <iostream>
 #include <string>
 #include <fstream>
-#include <streambuf>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -24,7 +23,7 @@ int main(int argc, char* argv[]) {
   string name="-h";
   string path="/sys/block/";
   if (count>0) name=argv[1];
-  if (count==0 || !name.find("-h")) {
+  if (count==0 || name.find("-h") != string::npos) {
     help();
     return 1;
   }
@@ -40,8 +39,8 @@ int main(int argc, char* argv[]) {
       }
       return 1;
     }
-    if (!name.find("zram")) name=name;
-    if (!name.find("find")) name=find_free();
+    if (name.find("zram") != string::npos) name=name;
+    if (name.find("find") != string::npos) name=find_free();
     path+=name;
     if (!dir_exist(path)) { cout << "can't find "+path+name+"\n"; return 1; }
     if (count>=2) write(path+"/reset", "1");
