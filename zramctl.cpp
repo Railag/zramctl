@@ -8,64 +8,53 @@
 #include <string>
 #include <fstream>
 #include <streambuf>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 using namespace std;
 
 void help();
 bool used(string path);
-void reset(string name);
+void write(string path, string data);
+bool dir_exist(string path);
+string find_free();
 
 int main(int argc, char* argv[]) {
   int count=argc-1;
-  string name = argv[1];
-  if (count==0 || name == "--help" || name == "-h") help();
+  string name="-h";
+  string path="/sys/block/";
+  if (count>0) name=argv[1];
+  if (count==0 || !name.find("-h")) {
+    help();
+    return 1;
+  }
   if (count>=1) {
-    string path="/sys/block/";
-    if (name[0] == 'z') {
-      path+=name;
-    }
-    if (name == "reset") {
-      if (count==2) reset(argv[2]);
-      else help();
-      return 0;
-    }
-    if (name == "find") {
-      for (int i=0; i<32; i++) {
-        string path_disksize=path+"zram"+to_string(i)+"/disksize";
-        if (!used(path_disksize)) {
-          name="zram"+to_string(i);
-          path+=name;
-          cout << name+"\n";
-          break;
+    if (!dir_exist(path+"zram0")) system("modprobe zram num_devices=32");
+    if (name == "reset" && count>=2) {
+      for (int i=2; i<=count; i++) {
+        if (!dir_exist(path+argv[i])) {
+          cout << "can't find " << path+argv[i] << "\n";
+          return 1;
         }
+        write(path+argv[i]+"/reset", "1");
+      }
+      return 1;
+    }
+    if (!name.find("zram")) name=name;
+    if (!name.find("find")) name=find_free();
+    path+=name;
+    if (!dir_exist(path)) { cout << "can't find "+path+name+"\n"; return 1; }
+    if (count>=2) write(path+"/reset", "1");
+    if (count==4) write(path+"/max_comp_streams", argv[4]);
+    if (count>=3) { string alg = argv[3];
+      if (alg == "lzo" || alg == "lz4")
+        write(path+"/comp_algorithm", alg);
+      else  {
+        cout << "Only lzo or lz4 allowed";
+        return 1;
       }
     }
-    if (count>4 ) help();
-    if (count>=2) {
-      reset(name);
-      if (count==4) {
-        string threads = argv[4];
-        fstream max_comp_streams;
-        string path_max_comp_streams=path+"/max_comp_streams";
-        max_comp_streams.open(path_max_comp_streams);
-        max_comp_streams << threads;
-        max_comp_streams.close();
-      }
-      if (count>=3) {
-        string alg = argv[3];
-        fstream comp_algorithm;
-        string path_comp_algorithm=path+"/comp_algorithm";
-        comp_algorithm.open(path_comp_algorithm);
-        comp_algorithm << alg;
-        comp_algorithm.close();
-      }
-      string size = argv[2];
-      fstream disksize;
-      string path_disksize=path+"/disksize";
-      disksize.open(path_disksize);
-      disksize << size;
-      disksize.close();
-    }
+    if (count>=2) write(path+"/disksize", argv[2]);
   }
   return 0;
 }
@@ -75,24 +64,43 @@ void help(){
   << "Usage: zramctl <name> <size <alg> <threads> \n"
   << "zramctl zram0 1024M lz4 4                   \n"
   << "zramctl find  1024M lz4 4                   \n"
-  << "zramctl reset zram0                         \n"
+  << "zramctl reset zram0 zram1 ...               \n"
   << "lzo|lz4    # compress algorithm             \n"
   << "*|{K|M|G}  # size of zram disk              \n"
   << "<name>     # zram* or find                  \n"
   << "           # if find, print and setup first free device\n";
 }
 
-bool used(string path) {
-  ifstream disksize(path);
-  string str((istreambuf_iterator<char>(disksize)), istreambuf_iterator<char>());
-  if (str[0] == '0') return 0;
-  else return 1;
+bool dir_exist(string path){
+  struct stat info;
+  if( stat( path.c_str(), &info ) != 0 ) return 0;
+  if( info.st_mode&S_IFDIR ) return 1;
+  return 0;
 }
 
-void reset(string name) {
-  ofstream reset;
-  string path_reset="/sys/block/"+name+"/reset";
-  reset.open(path_reset);
-  reset << 1;
-  reset.close();
+void write(string path, string data){
+  ofstream file;
+  file.open(path);
+  file << data;
+  file.close();
+}
+
+string find_free(){
+  for (int i=0; i<32; i++) {
+    string path="/sys/block/zram"+to_string(i);
+    if(!dir_exist(path)) break;
+    if (!used(path+"/disksize")) {
+      string name="zram"+to_string(i);
+      cout << name+"\n";
+      return name;
+    }
+  }
+  return "None";
+}
+
+bool used(string path) {
+  ifstream disksize;
+  disksize.open(path);
+  if (char(disksize.get()) == '0') return 0;
+  else return 1;
 }
